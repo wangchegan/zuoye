@@ -1,0 +1,73 @@
+#include "rclcpp/rclcpp.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+#include "turtlesim/msg/pose.hpp"
+#include <cstdlib> // For rand() and srand()
+#include <ctime>   // For std::time()
+
+class TurtleChase : public rclcpp::Node {
+public:
+    TurtleChase()
+        : Node("turtle_chase") {
+        // 创建发布器和订阅器
+        publisherA_ = this->create_publisher<geometry_msgs::msg::Twist>("turtle1/cmd_vel", 10);
+        subscriberB_ = this->create_subscription<turtlesim::msg::Pose>(
+            "turtle2/pose", 10,
+            std::bind(&TurtleChase::poseB_callback, this, std::placeholders::_1));
+
+        // 初始化随机数种子
+        std::srand(std::time(nullptr));
+        // 随机初始化乌龟 B 的位置
+        randomizeTurtleBPosition();
+
+        // 设置定时器，控制乌龟 A 的移动
+        timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(100),
+            std::bind(&TurtleChase::timer_callback, this));
+    }
+
+private:
+    void randomizeTurtleBPosition() {
+        auto msg = geometry_msgs::msg::Twist();
+        msg.linear.x = 0.0;
+        msg.angular.z = 0.0;
+        publisherA_->publish(msg); // 停止乌龟 A 的运动
+
+        // 随机初始化乌龟 B 的角度
+        msg.angular.z = static_cast<float>(std::rand()) / RAND_MAX * 2 * M_PI;
+        publisherA_->publish(msg);
+    }
+
+    void poseB_callback(const turtlesim::msg::Pose::SharedPtr msg) {
+        poseB_ = *msg;
+    }
+
+    void timer_callback() {
+        auto msg = geometry_msgs::msg::Twist();
+
+        // 计算乌龟 A 到乌龟 B 的方向
+        double dx = poseB_.x - poseA_.x;
+        double dy = poseB_.y - poseA_.y;
+        double angle_to_target = std::atan2(dy, dx);
+
+        // 设置乌龟 A 的角度和线速度
+        msg.angular.z = angle_to_target;
+        msg.linear.x = 1.0;
+
+        publisherA_->publish(msg); // 发布运动命令
+    }
+
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisherA_;
+    rclcpp::Subscription<turtlesim::msg::Pose>::SharedPtr subscriberB_;
+    rclcpp::TimerBase::SharedPtr timer_;
+
+    turtlesim::msg::Pose poseA_;
+    turtlesim::msg::Pose poseB_;
+};
+
+int main(int argc, char *argv[]) {
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<TurtleChase>();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    return 0;
+}
